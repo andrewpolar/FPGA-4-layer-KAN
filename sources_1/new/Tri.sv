@@ -108,10 +108,8 @@ module Tri #(
     Function_t U3 [0:N_U2*N_U3-1];
     
     int error;
-int record, k, j;             // loop indices
-logic signed [31:0] e;        // temporary error per record
-logic signed [63:0] m0, m1, m2, m3; // accumulation variables
-
+    int record;                   // loop indices
+    logic signed [31:0] e;        // temporary error per record
 
 initial begin
         // Load data
@@ -155,46 +153,50 @@ initial begin
                 // Forward pass
                 // =====================
                 
-                // Block #1: layer 0 compute
+                //clock cycle 1
                 for (int k = 0; k < N_U0; ++k) begin
                     for (int j = 0; j < N_FEATURES; ++j) begin
                         buffer[k][j] = Compute(training_feature_at(record, j), U0[k * N_FEATURES + j]);
                     end
                 end
                 
+                //clock cycle 2
                 for (int k = 0; k < N_U0; ++k) begin
                     models0[k] = reduce_row(k, N_FEATURES, N_MULT0);
                 end
 
-                // Block #3: layer 1 compute
+                //clock cycle 3
                 for (int k = 0; k < N_U1; ++k) begin
                     for (int j = 0; j < N_U0; ++j) begin
                         buffer[k][j] = Compute(models0[j], U1[k * N_U0 + j]);
                     end
                 end
                 
+                //clock cycle 4
                 for (int k = 0; k < N_U1; ++k) begin
                     models1[k] = reduce_row(k, N_U0, N_MULT1);
                 end
 
-                // Block #5: layer 2 compute
+                //clock cycle 5
                 for (int k = 0; k < N_U2; ++k) begin
                     for (int j = 0; j < N_U1; ++j) begin
                         buffer[k][j] = Compute(models1[j], U2[k * N_U1 + j]);
                     end
                 end
                 
+                //clock cycle 6
                 for (int k = 0; k < N_U2; ++k) begin
                     models2[k] = reduce_row(k, N_U1, N_MULT2);
                 end
 
-                // Block #7: layer 3 compute
+                //clock cycle 7
                 for (int k = 0; k < N_U3; ++k) begin
                     for (int j = 0; j < N_U2; ++j) begin
                         buffer[k][j] = Compute(models2[j], U3[k * N_U2 + j]);
                     end
                 end
                 
+                //clock cycle 8
                 for (int k = 0; k < N_U3; ++k) begin
                     models3[k] = reduce_row(k, N_U2, N_MULT3);
                 end
@@ -203,7 +205,7 @@ initial begin
                 // Backward pass
                 // =====================
 
-                // Block #9: differences
+                //clock cycle 9
                 for (int k = 0; k < N_U3; ++k)
                     for (int j = 0; j < N_U2; ++j)
                         differences2[k][j] = GetDifference(U3[k * N_U2 + j]);
@@ -216,30 +218,31 @@ initial begin
                     for (int j = 0; j < N_U0; ++j)
                         differences0[k][j] = GetDifference(U1[k * N_U0 + j]);
 
-                // Block #10: deltas3 -> deltas2
-                deltas3[0] = $signed(targets_training[record]) - models3[0];
+                //clock cycle 10
+                deltas3[0] = targets_training[record] - models3[0];
 
+                //clock cycle 11
                 for (int j = 0; j < N_U2; ++j) begin
                     deltas2[j] = 0;
                     for (int i = 0; i < N_U3; ++i)
-                        deltas2[j] += ($signed(differences2[i][j]) * deltas3[i]) >>> N_DELTA_SHIFT3;
+                        deltas2[j] += (differences2[i][j] * deltas3[i]) >>> N_DELTA_SHIFT3;
                 end
 
-                // Block #11: deltas1
+                //clock cycle 12
                 for (int j = 0; j < N_U1; ++j) begin
                     deltas1[j] = 0;
                     for (int i = 0; i < N_U2; ++i)
-                        deltas1[j] += ($signed(differences1[i][j]) * deltas2[i]) >>> N_DELTA_SHIFT2;
+                        deltas1[j] += (differences1[i][j] * deltas2[i]) >>> N_DELTA_SHIFT2;
                 end
 
-                // Block #12: deltas0
+                //clock cycle 13
                 for (int j = 0; j < N_U0; ++j) begin
                     deltas0[j] = 0;
                     for (int i = 0; i < N_U1; ++i)
-                        deltas0[j] += ($signed(differences0[i][j]) * deltas1[i]) >>> N_DELTA_SHIFT1;
+                        deltas0[j] += (differences0[i][j] * deltas1[i]) >>> N_DELTA_SHIFT1;
                 end
 
-                // Block #13: updates
+                //clock cycle 14
                 for (int k = 0; k < N_U3; ++k)
                     for (int j = 0; j < N_U2; ++j)
                         Update(deltas3[k] >>> N_ALPHA_SHIFT3, U3[k * N_U2 + j]);
@@ -259,6 +262,7 @@ initial begin
             end // record
             $display("epoch = %0d", epoch);
         end // epoch
+        //Training 14 * 8192 * 32 = 3,670,016 cycles
         
         // =====================
         // Validation after training
@@ -266,42 +270,53 @@ initial begin
 
         error = 0;
         for (record = 0; record < N_V_RECORDS; ++record) begin
-
-            // Layer 0 forward
-            for (k = 0; k < N_U0; ++k) begin
-                m0 = 0;
-                for (j = 0; j < N_FEATURES; ++j)
-                    m0 += Compute(validation_feature_at(record, j),
-                                U0[k * N_FEATURES + j]);
-                m0 = (m0 * N_MULT0) >>> N_BASE_SHIFT;
-                models0[k] = $signed(m0[31:0]);
+         
+            //clock cycle 1
+            for (int k = 0; k < N_U0; ++k) begin
+                for (int j = 0; j < N_FEATURES; ++j) begin
+                    buffer[k][j] = Compute(validation_feature_at(record, j), U0[k * N_FEATURES + j]);
+                end
+            end
+                
+            //clock cycle 2
+            for (int k = 0; k < N_U0; ++k) begin
+                models0[k] = reduce_row(k, N_FEATURES, N_MULT0);
+            end
+            
+            //clock cycle 3
+            for (int k = 0; k < N_U1; ++k) begin
+                for (int j = 0; j < N_U0; ++j) begin
+                    buffer[k][j] = Compute(models0[j], U1[k * N_U0 + j]);
+                end
+            end
+                
+            //clock cycle 4
+            for (int k = 0; k < N_U1; ++k) begin
+                models1[k] = reduce_row(k, N_U0, N_MULT1);
             end
 
-            // Layer 1 forward
-            for (k = 0; k < N_U1; ++k) begin
-                m1 = 0;
-                for (j = 0; j < N_U0; ++j)
-                    m1 += Compute(models0[j], U1[k * N_U0 + j]);
-                m1 = (m1 * N_MULT1) >>> N_BASE_SHIFT;
-                models1[k] = $signed(m1[31:0]);
+            //clock cycle 5
+            for (int k = 0; k < N_U2; ++k) begin
+                for (int j = 0; j < N_U1; ++j) begin
+                    buffer[k][j] = Compute(models1[j], U2[k * N_U1 + j]);
+                end
+            end
+                
+            //clock cycle 6
+            for (int k = 0; k < N_U2; ++k) begin
+                models2[k] = reduce_row(k, N_U1, N_MULT2);
             end
 
-            // Layer 2 forward
-            for (k = 0; k < N_U2; ++k) begin
-                m2 = 0;
-                for (j = 0; j < N_U1; ++j)
-                    m2 += Compute(models1[j], U2[k * N_U1 + j]);
-                m2 = (m2 * N_MULT2) >>> N_BASE_SHIFT;
-                models2[k] = $signed(m2[31:0]);
+            //clock cycle 7
+            for (int k = 0; k < N_U3; ++k) begin
+                for (int j = 0; j < N_U2; ++j) begin
+                    buffer[k][j] = Compute(models2[j], U3[k * N_U2 + j]);
+                end
             end
-
-            // Layer 3 forward
-            for (k = 0; k < N_U3; ++k) begin
-                m3 = 0;
-                for (j = 0; j < N_U2; ++j)
-                    m3 += Compute(models2[j], U3[k * N_U2 + j]);
-                m3 = (m3 * N_MULT3) >>> N_BASE_SHIFT;
-                models3[k] = $signed(m3[31:0]);
+                
+            //clock cycle 8
+            for (int k = 0; k < N_U3; ++k) begin
+                models3[k] = reduce_row(k, N_U2, N_MULT3);
             end
 
             // Compute absolute error
@@ -311,6 +326,8 @@ initial begin
 
         end // validation record
         error = error >>> 11;
+        //Validation 8 * 2048
+        //Total 3,686,400 cycles = 37 ms
 
         $display("Validation total error = %0d", error);       
 end //initial 
