@@ -108,9 +108,7 @@ module Tri #(
     Function_t U3 [0:N_U2*N_U3-1];
     
     int error;
-    int record;                   // loop indices
-    logic signed [31:0] e;        // temporary error per record
-
+ 
 initial begin
         // Load data
         flat_features_training   = '{`include "features_training.svh"};
@@ -269,7 +267,7 @@ initial begin
         // =====================
 
         error = 0;
-        for (record = 0; record < N_V_RECORDS; ++record) begin
+        for (int record = 0; record < N_V_RECORDS; ++record) begin
          
             //clock cycle 1
             for (int k = 0; k < N_U0; ++k) begin
@@ -320,14 +318,16 @@ initial begin
             end
 
             // Compute absolute error
-            e = targets_validation[record] - models3[0];
-            if (e < 0) e = -e;
-            error += e;
-
+            //clock cycle 9
+            if (targets_validation[record] > models3[0]) 
+                error += targets_validation[record] - models3[0];
+            else 
+                error += models3[0] - targets_validation[record];
+            
         end // validation record
         error = error >>> 11;
-        //Validation 8 * 2048
-        //Total 3,686,400 cycles = 37 ms
+        //Validation 9 * 2048
+        //Total 3,688,448 cycles = 37 ms
 
         $display("Validation total error = %0d", error);       
 end //initial 
