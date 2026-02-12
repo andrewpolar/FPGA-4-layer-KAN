@@ -158,85 +158,45 @@ initial begin
                 // Block #1: layer 0 compute
                 for (int k = 0; k < N_U0; ++k) begin
                     for (int j = 0; j < N_FEATURES; ++j) begin
-                        buffer[k][j] =
-                            Compute(
-                                training_feature_at(record, j),
-                                U0[k * N_FEATURES + j]
-                            );
+                        buffer[k][j] = Compute(training_feature_at(record, j), U0[k * N_FEATURES + j]);
                     end
                 end
-
-                // Block #2: layer 0 reduction
+                
                 for (int k = 0; k < N_U0; ++k) begin
-                    logic signed [63:0] m0;
-                    m0 = 0;
-                    for (int j = 0; j < N_FEATURES; ++j)
-                        m0 += buffer[k][j];
-                    m0 = (m0 * N_MULT0) >>> N_BASE_SHIFT;
-                    models0[k] = $signed(m0[31:0]);
+                    models0[k] = reduce_row(k, N_FEATURES, N_MULT0);
                 end
 
                 // Block #3: layer 1 compute
                 for (int k = 0; k < N_U1; ++k) begin
                     for (int j = 0; j < N_U0; ++j) begin
-                        buffer[k][j] =
-                            Compute(
-                                models0[j],
-                                U1[k * N_U0 + j]
-                            );
+                        buffer[k][j] = Compute(models0[j], U1[k * N_U0 + j]);
                     end
                 end
-
-                // Block #4: layer 1 reduction
+                
                 for (int k = 0; k < N_U1; ++k) begin
-                    logic signed [63:0] m1;
-                    m1 = 0;
-                    for (int j = 0; j < N_U0; ++j)
-                        m1 += buffer[k][j];
-                    m1 = (m1 * N_MULT1) >>> N_BASE_SHIFT;
-                    models1[k] = $signed(m1[31:0]);
+                    models1[k] = reduce_row(k, N_U0, N_MULT1);
                 end
 
                 // Block #5: layer 2 compute
                 for (int k = 0; k < N_U2; ++k) begin
                     for (int j = 0; j < N_U1; ++j) begin
-                        buffer[k][j] =
-                            Compute(
-                                models1[j],
-                                U2[k * N_U1 + j]
-                            );
+                        buffer[k][j] = Compute(models1[j], U2[k * N_U1 + j]);
                     end
                 end
-
-                // Block #6: layer 2 reduction
+                
                 for (int k = 0; k < N_U2; ++k) begin
-                    logic signed [63:0] m2;
-                    m2 = 0;
-                    for (int j = 0; j < N_U1; ++j)
-                        m2 += buffer[k][j];
-                    m2 = (m2 * N_MULT2) >>> N_BASE_SHIFT;
-                    models2[k] = $signed(m2[31:0]);
+                    models2[k] = reduce_row(k, N_U1, N_MULT2);
                 end
 
                 // Block #7: layer 3 compute
                 for (int k = 0; k < N_U3; ++k) begin
                     for (int j = 0; j < N_U2; ++j) begin
-                        buffer[k][j] =
-                            Compute(
-                                models2[j],
-                                U3[k * N_U2 + j]
-                            );
+                        buffer[k][j] = Compute(models2[j], U3[k * N_U2 + j]);
                     end
                 end
-
-                // Block #8: layer 3 reduction
+                
                 for (int k = 0; k < N_U3; ++k) begin
-                    logic signed [63:0] m3;
-                    m3 = 0;
-                    for (int j = 0; j < N_U2; ++j)
-                        m3 += buffer[k][j];
-                    m3 = (m3 * N_MULT3) >>> N_BASE_SHIFT;
-                    models3[k] = $signed(m3[31:0]);
+                    models3[k] = reduce_row(k, N_U2, N_MULT3);
                 end
 
                 // =====================
@@ -246,18 +206,15 @@ initial begin
                 // Block #9: differences
                 for (int k = 0; k < N_U3; ++k)
                     for (int j = 0; j < N_U2; ++j)
-                        differences2[k][j] =
-                            GetDifference(U3[k * N_U2 + j]);
+                        differences2[k][j] = GetDifference(U3[k * N_U2 + j]);
 
                 for (int k = 0; k < N_U2; ++k)
                     for (int j = 0; j < N_U1; ++j)
-                        differences1[k][j] =
-                            GetDifference(U2[k * N_U1 + j]);
+                        differences1[k][j] = GetDifference(U2[k * N_U1 + j]);
 
                 for (int k = 0; k < N_U1; ++k)
                     for (int j = 0; j < N_U0; ++j)
-                        differences0[k][j] =
-                            GetDifference(U1[k * N_U0 + j]);
+                        differences0[k][j] = GetDifference(U1[k * N_U0 + j]);
 
                 // Block #10: deltas3 -> deltas2
                 deltas3[0] = $signed(targets_training[record]) - models3[0];
@@ -265,46 +222,40 @@ initial begin
                 for (int j = 0; j < N_U2; ++j) begin
                     deltas2[j] = 0;
                     for (int i = 0; i < N_U3; ++i)
-                        deltas2[j] +=
-                            ($signed(differences2[i][j]) * deltas3[i]) >>> N_DELTA_SHIFT3;
+                        deltas2[j] += ($signed(differences2[i][j]) * deltas3[i]) >>> N_DELTA_SHIFT3;
                 end
 
                 // Block #11: deltas1
                 for (int j = 0; j < N_U1; ++j) begin
                     deltas1[j] = 0;
                     for (int i = 0; i < N_U2; ++i)
-                        deltas1[j] +=
-                            ($signed(differences1[i][j]) * deltas2[i]) >>> N_DELTA_SHIFT2;
+                        deltas1[j] += ($signed(differences1[i][j]) * deltas2[i]) >>> N_DELTA_SHIFT2;
                 end
 
                 // Block #12: deltas0
                 for (int j = 0; j < N_U0; ++j) begin
                     deltas0[j] = 0;
                     for (int i = 0; i < N_U1; ++i)
-                        deltas0[j] +=
-                            ($signed(differences0[i][j]) * deltas1[i]) >>> N_DELTA_SHIFT1;
+                        deltas0[j] += ($signed(differences0[i][j]) * deltas1[i]) >>> N_DELTA_SHIFT1;
                 end
 
                 // Block #13: updates
                 for (int k = 0; k < N_U3; ++k)
                     for (int j = 0; j < N_U2; ++j)
-                        Update(deltas3[k] >>> N_ALPHA_SHIFT3,
-                            U3[k * N_U2 + j]);
+                        Update(deltas3[k] >>> N_ALPHA_SHIFT3, U3[k * N_U2 + j]);
 
                 for (int k = 0; k < N_U2; ++k)
                     for (int j = 0; j < N_U1; ++j)
-                        Update(deltas2[k] >>> N_ALPHA_SHIFT2,
-                            U2[k * N_U1 + j]);
+                        Update(deltas2[k] >>> N_ALPHA_SHIFT2, U2[k * N_U1 + j]);
 
                 for (int k = 0; k < N_U1; ++k)
                     for (int j = 0; j < N_U0; ++j)
-                        Update(deltas1[k] >>> N_ALPHA_SHIFT1,
-                            U1[k * N_U0 + j]);
+                        Update(deltas1[k] >>> N_ALPHA_SHIFT1, U1[k * N_U0 + j]);
 
                 for (int k = 0; k < N_U0; ++k)
                     for (int j = 0; j < N_FEATURES; ++j)
-                        Update(deltas0[k] >>> N_ALPHA_SHIFT0,
-                            U0[k * N_FEATURES + j]);
+                        Update(deltas0[k] >>> N_ALPHA_SHIFT0, U0[k * N_FEATURES + j]);
+                        
             end // record
             $display("epoch = %0d", epoch);
         end // epoch
@@ -444,5 +395,17 @@ end //initial
             F.f[F.index]     = F.f[F.index]     + ($signed(residual[31:0]) - tmp);
         end
     endtask
+    
+    function automatic logic signed [31:0] reduce_row(input int k, input int n_cols, input logic signed [31:0] mult);
+        logic signed [63:0] acc;
+        acc = '0;
+
+        for (int j = 0; j < n_cols; j++) begin
+            acc += buffer[k][j];
+        end
+
+        acc = (acc * mult) >>> N_BASE_SHIFT;
+        return acc[31:0];
+    endfunction
 
 endmodule
