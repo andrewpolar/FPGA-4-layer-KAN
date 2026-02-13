@@ -7,8 +7,8 @@
 //All computations in integers, no divisions, code fit massive board parallel processing. 
 //The end result is relative error for validation set 18290. The target limit is 1805000, so it is near 1%.
 //When testing on board LEDs may be set to show the either error or number of cycles. 
-//When designed professionally the latency for one record must be 20 to 30 cycles and this latency not 
-//depend on width of the model, only on the number of layers. So if board hardware allows your  4 layer model
+//When designed professionally the latency for one record in training must be 20 to 30 cycles and this latency not 
+//depend on width of the model, only on the number of layers. So if board hardware allows your 4 layer model
 //runs with the same processing speed. 
 module Tri #(
     //data
@@ -86,9 +86,9 @@ module Tri #(
     logic signed [63:0] deltas1 [0:N_U1-1]; 
     logic signed [63:0] deltas0 [0:N_U0-1]; 
     
-    logic signed [31:0] differences2[0:N_U3-1][0:N_U2-1];
-    logic signed [31:0] differences1[0:N_U2-1][0:N_U1-1];
-    logic signed [31:0] differences0[0:N_U1-1][0:N_U0-1];
+    logic signed [31:0] differences2[0:N_U2-1][0:N_U3-1];
+    logic signed [31:0] differences1[0:N_U1-1][0:N_U2-1];
+    logic signed [31:0] differences0[0:N_U0-1][0:N_U1-1];
 
     logic signed [31:0] buffer[0:N_U0-1][0:N_U0-1];
     
@@ -122,34 +122,57 @@ initial begin
         flat_level2 = '{`include "layer_two.svh"};
         flat_level3 = '{`include "layer_three.svh"};
         
-        //initialize functions
-        for (int i = 0, k = 0; i < N_FEATURES * N_U0; i++) begin
-            Initialize(U0[i], flat_level0, N_XMIN0, N_XMAX0, N_DELTA_SHIFT0, N_POINTS0, k);
-            k = k + N_POINTS0;
+        for (int i = 0, k = 0; i < N_FEATURES * N_U0; i++, k += N_POINTS0) begin
+            for (int j = 0; j < N_POINTS0; j++) U0[i].f[j] = flat_level0[k + j];
+                        
+            U0[i].xmin        = N_XMIN0;
+            U0[i].xmax        = N_XMAX0;
+            U0[i].delta_shift = N_DELTA_SHIFT0;
+            U0[i].nPoints     = N_POINTS0;
+            U0[i].index       = 0;
+            U0[i].offset      = 0;
         end
-        //
-        for (int i = 0, k = 0; i < N_U0 * N_U1; i++) begin
-            Initialize(U1[i], flat_level1, N_XMIN1, N_XMAX1, N_DELTA_SHIFT1, N_POINTS1, k);
-            k = k + N_POINTS1;
+        
+        for (int i = 0, k = 0; i < N_U0 * N_U1; i++, k += N_POINTS1) begin
+            for (int j = 0; j < N_POINTS1; j++) U1[i].f[j] = flat_level1[k + j];
+                        
+            U1[i].xmin        = N_XMIN1;
+            U1[i].xmax        = N_XMAX1;
+            U1[i].delta_shift = N_DELTA_SHIFT1;
+            U1[i].nPoints     = N_POINTS1;
+            U1[i].index       = 0;
+            U1[i].offset      = 0;
         end
-        //
-        for (int i = 0, k = 0; i < N_U1 * N_U2; i++) begin
-            Initialize(U2[i], flat_level2, N_XMIN2, N_XMAX2, N_DELTA_SHIFT2, N_POINTS2, k);
-            k = k + N_POINTS2;
+        
+        for (int i = 0, k = 0; i < N_U1 * N_U2; i++, k += N_POINTS2) begin
+            for (int j = 0; j < N_POINTS2; j++) U2[i].f[j] = flat_level2[k + j];
+                        
+            U2[i].xmin        = N_XMIN2;
+            U2[i].xmax        = N_XMAX2;
+            U2[i].delta_shift = N_DELTA_SHIFT2;
+            U2[i].nPoints     = N_POINTS2;
+            U2[i].index       = 0;
+            U2[i].offset      = 0;
         end
-        //
-        for (int i = 0, k = 0; i < N_U2 * N_U3; i++) begin
-            Initialize(U3[i], flat_level3, N_XMIN3, N_XMAX3, N_DELTA_SHIFT3, N_POINTS3, k);
-            k = k + N_POINTS3;
-        end     
+        
+        for (int i = 0, k = 0; i < N_U2 * N_U3; i++, k += N_POINTS3) begin
+            for (int j = 0; j < N_POINTS3; j++) U3[i].f[j] = flat_level3[k + j];
+                        
+            U3[i].xmin        = N_XMIN3;
+            U3[i].xmax        = N_XMAX3;
+            U3[i].delta_shift = N_DELTA_SHIFT3;
+            U3[i].nPoints     = N_POINTS3;
+            U3[i].index       = 0;
+            U3[i].offset      = 0;
+        end
         
         //from here to the end of initial block is training
         for (int epoch = 0; epoch < N_EPOCHS; ++epoch) begin
             for (int record = 0; record < N_T_RECORDS; ++record) begin
             
-                // =====================
-                // Forward pass
-                // =====================
+                // ============================================================================
+                // Forward pass: compute layer outputs using integer piecewise-linear functions
+                // ============================================================================
                 
                 //clock cycle 1
                 for (int k = 0; k < N_U0; ++k) begin
@@ -199,48 +222,46 @@ initial begin
                     models3[k] = reduce_row(k, N_U2, N_MULT3);
                 end
 
-                // =====================
-                // Backward pass
-                // =====================
+                // ===========================================================
+                // Backward pass: compute deltas and propagate residual errors
+                // ===========================================================
 
                 //clock cycle 9
                 for (int k = 0; k < N_U3; ++k)
                     for (int j = 0; j < N_U2; ++j)
-                        differences2[k][j] = GetDifference(U3[k * N_U2 + j]);
+                        differences2[j][k] = GetDifference(U3[k * N_U2 + j]);
 
                 for (int k = 0; k < N_U2; ++k)
                     for (int j = 0; j < N_U1; ++j)
-                        differences1[k][j] = GetDifference(U2[k * N_U1 + j]);
+                        differences1[j][k] = GetDifference(U2[k * N_U1 + j]);
 
                 for (int k = 0; k < N_U1; ++k)
                     for (int j = 0; j < N_U0; ++j)
-                        differences0[k][j] = GetDifference(U1[k * N_U0 + j]);
+                        differences0[j][k] = GetDifference(U1[k * N_U0 + j]);
 
                 //clock cycle 10
                 deltas3[0] = targets_training[record] - models3[0];
 
                 //clock cycle 11
-                for (int j = 0; j < N_U2; ++j) begin
-                    deltas2[j] = 0;
-                    for (int i = 0; i < N_U3; ++i)
-                        deltas2[j] += (differences2[i][j] * deltas3[i]) >>> N_DELTA_SHIFT3;
+                for (int j = 0; j < N_U2; j++) begin
+                    deltas2[j] = inner_product_row(differences2[j], deltas3, N_U3, N_DELTA_SHIFT3);
                 end
-
+                
                 //clock cycle 12
-                for (int j = 0; j < N_U1; ++j) begin
-                    deltas1[j] = 0;
-                    for (int i = 0; i < N_U2; ++i)
-                        deltas1[j] += (differences1[i][j] * deltas2[i]) >>> N_DELTA_SHIFT2;
+                for (int j = 0; j < N_U1; j++) begin
+                    deltas1[j] = inner_product_row(differences1[j], deltas2, N_U2, N_DELTA_SHIFT2);
                 end
 
                 //clock cycle 13
-                for (int j = 0; j < N_U0; ++j) begin
-                    deltas0[j] = 0;
-                    for (int i = 0; i < N_U1; ++i)
-                        deltas0[j] += (differences0[i][j] * deltas1[i]) >>> N_DELTA_SHIFT1;
+                for (int j = 0; j < N_U0; j++) begin
+                    deltas0[j] = inner_product_row(differences0[j], deltas1, N_U1, N_DELTA_SHIFT1);
                 end
+                
+                //==========================================================
+                // Update: apply gradient-like updates to function endpoints
+                //==========================================================
 
-                //clock cycle 14
+                //clock cycles 14-16
                 for (int k = 0; k < N_U3; ++k)
                     for (int j = 0; j < N_U2; ++j)
                         Update(deltas3[k] >>> N_ALPHA_SHIFT3, U3[k * N_U2 + j]);
@@ -249,10 +270,12 @@ initial begin
                     for (int j = 0; j < N_U1; ++j)
                         Update(deltas2[k] >>> N_ALPHA_SHIFT2, U2[k * N_U1 + j]);
 
+                //clock cycles 15-24
                 for (int k = 0; k < N_U1; ++k)
                     for (int j = 0; j < N_U0; ++j)
                         Update(deltas1[k] >>> N_ALPHA_SHIFT1, U1[k * N_U0 + j]);
 
+                //clock cycles 25-29
                 for (int k = 0; k < N_U0; ++k)
                     for (int j = 0; j < N_FEATURES; ++j)
                         Update(deltas0[k] >>> N_ALPHA_SHIFT0, U0[k * N_FEATURES + j]);
@@ -260,11 +283,11 @@ initial begin
             end // record
             $display("epoch = %0d", epoch);
         end // epoch
-        //Training 14 * 8192 * 32 = 3,670,016 cycles
+        //Training 29 * 8192 * 32 = 7,602,176 cycles
         
-        // =====================
-        // Validation after training
-        // =====================
+        // ==========================================================
+        // Validation after training by forward pass with undeen data
+        // ==========================================================
 
         error = 0;
         for (int record = 0; record < N_V_RECORDS; ++record) begin
@@ -325,11 +348,10 @@ initial begin
                 error += models3[0] - targets_validation[record];
             
         end // validation record
-        error = error >>> 11;
-        //Validation 9 * 2048
-        //Total 3,688,448 cycles = 37 ms
+        error = error >>> 11;  //division by number of records
+        //Validation 9 * 2048 = 18,432 cycles
 
-        $display("Validation total error = %0d", error);       
+        $display("Average validation error = %0d", error);       
 end //initial 
 
     function automatic logic signed [31:0] training_feature_at(input int record, input int feature);
@@ -340,28 +362,7 @@ end //initial
         validation_feature_at = flat_features_validation[record*N_FEATURES + feature];
     endfunction
 
-    //functions
-    task automatic Initialize(
-        output Function_t F,
-        input  logic signed [31:0] flat_data [],  
-        input  logic [31:0] xmin,
-        input  logic [31:0] xmax,
-        input  logic [31:0] delta_shift,
-        input  int nPoints,
-        input  int start
-    );
-        int j;
-        for (j = 0; j < nPoints; j++) begin
-            F.f[j] = flat_data[start + j];
-        end
-        F.xmin = xmin;
-        F.xmax = xmax;
-        F.delta_shift = delta_shift;
-        F.nPoints = nPoints;
-        F.index = 0;
-        F.offset = 0;
-    endtask
-        
+    //functions     
     function automatic logic signed [31:0] Compute(input logic signed [31:0] x_in, ref Function_t F);
         logic signed [31:0] x;
         logic signed [31:0] R;
@@ -399,7 +400,7 @@ end //initial
         end
     endfunction
     
-    task automatic Update(input logic signed [63:0] residual, ref   Function_t F);
+    task automatic Update(input logic signed [63:0] residual, ref Function_t F);
         logic signed [63:0] prod;
         logic signed [31:0] tmp;
 
@@ -423,6 +424,19 @@ end //initial
 
         acc = (acc * mult) >>> N_BASE_SHIFT;
         return acc[31:0];
+    endfunction
+    
+    function automatic logic signed [63:0] inner_product_row(
+        input logic signed [31:0] row[],
+        input logic signed [63:0] vec[],
+        input int n,
+        input int delta_shift
+    );
+        logic signed [63:0] acc;
+        acc = 0;
+        for (int i = 0; i < n; i++)
+            acc += (row[i] * vec[i]) >>> delta_shift;
+        return acc;
     endfunction
 
 endmodule
